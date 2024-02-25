@@ -1,0 +1,52 @@
+import paramiko
+import time
+import re
+import pandas as pd
+
+# define device information
+
+device = {
+"hostname": "hostname",
+"username": "username",
+"password": "password",
+"port": 22,
+}
+# create SSH client object
+ssh = paramiko.SSHClient()
+ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+# establish SSH connection to device
+ssh.connect(**device)
+
+# create shell object to interact with device
+shell = ssh.invoke_shell()
+
+# send command to device
+shell.send(" \n")
+
+
+output= b""
+while True:
+    # Check if there is data available to be received
+    if shell.recv_ready():
+        # Receive the data
+        buffer = shell.recv(1024)
+        output += buffer
+    else:
+        # If no more data is available, break the loop
+        break
+
+# Decode the output
+output = output.decode('latin-1')
+
+# Parse the output and save it to the Excel sheet
+lines = output.splitlines()
+data = [line.split() for line in lines]
+
+# Create a DataFrame from the data
+df = pd.DataFrame(data)
+
+# Write the DataFrame to an Excel file
+df.to_excel('JIHA-M-ISAMFX16-A01.xlsx', index=False)
+# close SSH connection
+ssh.close()

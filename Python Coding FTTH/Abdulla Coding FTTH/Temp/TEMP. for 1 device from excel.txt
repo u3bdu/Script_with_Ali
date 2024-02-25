@@ -1,0 +1,77 @@
+import pandas as pd
+import paramiko
+from concurrent.futures import ThreadPoolExecutor
+import time
+
+# Read Excel file using pandas
+df = pd.read_excel(r'#path of the excel.xlsx')
+
+# Create an empty DataFrame to store the data
+all_data = pd.DataFrame()
+
+# Define the handle_session function
+def handle_session(hostname, username, password, port):
+    # Create SSH client object
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    try:
+        # Establish SSH connection
+        ssh.connect(hostname=hostname, username=username, password=password, port=port, timeout=120)
+
+        # create shell object to interact with device
+        shell = ssh.invoke_shell()
+            # send commands to device
+        shell.send(" \n")
+
+
+        output = b''
+        while True:
+            # Check if there is data available to be received
+            if shell.recv_ready():
+                # Receive the data
+                buffer = shell.recv(1024)
+                output += buffer
+            else:
+                # If no more data is available, break the loop
+                break
+
+        output = output.decode('latin-1')  # Decode using 'latin-1' encoding
+
+        # Parse the output and save it to the DataFrame
+        lines = output.splitlines()
+        data = [line.split() for line in lines]
+        device_data = pd.DataFrame(data)
+        
+        # Append the device data to the overall data
+        global all_data
+        all_data = pd.concat([all_data, device_data], ignore_index=True)
+
+    except paramiko.AuthenticationException as auth_exception:
+        print(f"Authentication failed for {hostname}: {str(auth_exception)}")
+    except paramiko.SSHException as ssh_exception:
+        print(f"SSH connection failed for {hostname}: {str(ssh_exception)}")
+    except Exception as e:
+        print(f"An error occurred for {hostname}: {str(e)}")
+
+    finally:
+        # Close SSH connection
+        ssh.close()
+
+# Create a thread pool with a maximum of 4 threads
+pool = ThreadPoolExecutor(max_workers=4)
+
+# Submit tasks to the thread pool for each device
+for index, row in df.iterrows():
+    hostname = row['hostname']
+    username = row['username']
+    password = row['password']
+    port = row['port']
+
+    pool.submit(handle_session, hostname, username, password, port)
+
+# Shutdown the thread pool to wait for all tasks to complete
+pool.shutdown()
+
+# Write the combined data to an Excel file
+all_data.to_excel('excel name.xlsx', index=False)

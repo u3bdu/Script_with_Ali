@@ -1,0 +1,106 @@
+
+
+import paramiko
+import time
+import pandas as pd
+
+# Define device information
+device = {
+    "hostname": "hostname",
+    "username": "username",
+    "password": "password",
+    "port": 22,
+}
+
+# Create SSH client object
+ssh = paramiko.SSHClient()
+ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+# Establish SSH connection to device
+ssh.connect(**device)
+
+# Create shell object to interact with device
+shell = ssh.invoke_shell()
+
+# Send commands to device
+shell.send("configure system security ssh server-profile idle-timeout 100\n")
+time.sleep(5)
+
+# Close SSH connection
+ssh.close()
+
+# Create SSH client object
+ssh = paramiko.SSHClient()
+ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+# Establish SSH connection to device
+ssh.connect(**device)
+
+# Create shell object to interact with device
+shell = ssh.invoke_shell()
+
+# Send commands to device
+shell.send("configure system security ssh server-profile idle-timeout 60\n")
+time.sleep(5)
+shell.send("exit all\n")
+shell.send("show port-protection\n")
+time.sleep(20)
+
+# Receive the output for display current-configuration
+output1 = b""
+while True:
+    if shell.recv_ready():
+        buffer = shell.recv(1024)
+        output1 += buffer
+    else:
+        break
+
+# Decode using 'latin-1' encoding
+output1 = output1.decode('latin-1') 
+
+# Split the output into lines
+lines1 = output1.splitlines()
+
+# Parse the output for Sheet1
+data_output1 = [line.split() for line in lines1 if line.strip()]
+
+# Send command for display protect-group
+shell.send("show equipment ont interface\n")
+time.sleep(20)
+
+# Receive the output for display protect-group
+output2 = b""
+while True:
+    if shell.recv_ready():
+        buffer = shell.recv(1024)
+        output2 += buffer
+    else:
+        break
+
+# Decode using 'latin-1' encoding
+output2 = output2.decode('latin-1') 
+
+# Split the output into lines
+lines2 = output2.splitlines()
+
+# Parse the output for Sheet2
+data_output2 = [line.split() for line in lines2 if line.strip()]
+
+# Create a DataFrame for Sheet1
+df_output1 = pd.DataFrame(data_output1)
+
+# Create a DataFrame for Sheet2
+df_output2 = pd.DataFrame(data_output2)
+
+# Create an Excel writer object
+writer = pd.ExcelWriter('test2.xlsx', engine='xlsxwriter')
+
+# Write the DataFrames to Excel sheets
+df_output1.to_excel(writer, sheet_name='Sheet1', index=False)
+df_output2.to_excel(writer, sheet_name='Sheet2', index=False)
+
+# Save the Excel file
+writer._save()
+
+# Close SSH connection
+ssh.close()

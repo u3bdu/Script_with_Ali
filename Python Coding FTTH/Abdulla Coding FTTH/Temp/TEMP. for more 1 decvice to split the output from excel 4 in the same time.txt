@@ -1,0 +1,133 @@
+import pandas as pd
+import paramiko
+import time
+from concurrent.futures import ThreadPoolExecutor
+from openpyxl import Workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
+
+# Read Excel file using pandas
+df = pd.read_excel(r'#path the excel.xlsx')
+
+# Print column names
+print(df.columns)
+
+# Define the handle_session function
+def handle_session(hostname, username, password, port):
+    # Create SSH client object
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    try:
+        # Establish SSH connection
+        ssh.connect(hostname=hostname, username=username, password=password, port=port, timeout=120)
+
+        # create shell object to interact with device
+        shell = ssh.invoke_shell()
+
+        # send commands to device
+        shell.send("enable\n")
+        shell.send("config\n")
+        shell.send("scroll\n")
+        shell.send('\n')
+        shell.send("display current-configuration\n")
+        shell.send(" \n")
+        time.sleep(20)
+        # Receive the output for display current-configuration
+        output1 = b""
+        while True:
+            if shell.recv_ready():
+                buffer = shell.recv(1024)
+                output1 += buffer
+            else:
+                break
+
+        # Decode using 'latin-1' encoding
+        output1 = output1.decode('latin-1')
+
+        # Split the output into lines
+        lines1 = output1.splitlines()
+
+        # Parse the output for Sheet1
+        data_output1 = [line.split() for line in lines1 if line.strip()]
+
+        # Send command for display protect-group
+        shell.send("display protect-group\n")
+        shell.send(" \n")
+        time.sleep(20)
+
+        # Receive the output for display protect-group
+        output2 = b""
+        while True:
+            if shell.recv_ready():
+                buffer = shell.recv(1024)
+                output2 += buffer
+            else:
+                break
+
+        # Decode using 'latin-1' encoding
+        output2 = output2.decode('latin-1')
+
+        # Split the output into lines
+        lines2 = output2.splitlines()
+
+        # Parse the output for Sheet2
+        data_output2 = [line.split() for line in lines2 if line.strip()]
+
+        # Create a DataFrame for Sheet1
+        df_output1 = pd.DataFrame(data_output1)
+
+        # Create a DataFrame for Sheet2
+        df_output2 = pd.DataFrame(data_output2)
+
+        # Get the olt name for the device
+        olt_name = df.loc[df['hostname'] == hostname, 'olt name'].values[0]
+
+        # Create a new workbook
+        workbook = Workbook()
+
+        # Create worksheets
+        sheet1 = workbook.active
+        sheet1.title = 'Sheet1'
+        sheet2 = workbook.create_sheet(title='Sheet2')
+
+        # Write DataFrame data to worksheets
+        for row in dataframe_to_rows(df_output1, index=False, header=False):
+            sheet1.append(row)
+
+        for row in dataframe_to_rows(df_output2, index=False, header=False):
+            sheet2.append(row)
+
+        # Save the workbook
+        workbook.save(f'{olt_name}.xlsx')
+
+    except paramiko.AuthenticationException as auth_exception:
+        print(f"Authentication failed for {hostname}: {str(auth_exception)}")
+    except paramiko.SSHException as ssh_exception:
+        print(f"SSH connection failed for {hostname}: {str(ssh_exception)}")
+    except Exception as e:
+        print(f"An error occurred for {hostname}: {str(e)}")
+
+    finally:
+        # Close SSH connection
+        ssh.close()
+
+# Create a thread pool with a maximum of 4 threads
+pool = ThreadPoolExecutor(max_workers=4)
+
+# Submit tasks to the thread pool for each device
+for index, row in df.iterrows():
+    hostname = row['hostname']
+    username = row['username']
+    password = row['password']
+    port = row['port']
+
+    try:
+        olt_name = df.loc[df['hostname'] == hostname, 'olt name'].values[0]
+    except IndexError:
+        print(f"Error: 'olt name' not found for {hostname}")
+        continue
+
+    pool.submit(handle_session, hostname, username, password, port)
+
+# Shutdown the thread pool to wait for all tasks to complete
+pool.shutdown()
